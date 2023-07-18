@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "676863279183",
+    "project_id": "present-sir-b7a39",
+    "storage_bucket": "present-sir-b7a39.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:676863279183:android:d73f98adaa3b480b80ea3a",
+        "android_client_info": {
+          "package_name": "com.rans_innovations.present_sir"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "676863279183-bcqvpvemj8c31vpmq81raokn1dkpln5c.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBDqMd3nyPt_9QFGsbeasq4mTmnmbPZTVY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "676863279183-bcqvpvemj8c31vpmq81raokn1dkpln5c.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
