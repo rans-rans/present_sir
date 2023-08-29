@@ -1,22 +1,22 @@
 class Passcode {
   final String lecturerId;
-  final String sessionId;
+  final String classId;
 
   Passcode({
     required this.lecturerId,
-    required this.sessionId,
+    required this.classId,
   });
 
   factory Passcode.fromJson(Map<String, dynamic> map) {
     return Passcode(
+      classId: map['s'],
       lecturerId: map['l'],
-      sessionId: map['s'],
     );
   }
 
   Map<String, dynamic> toJson() {
     return {
-      's': sessionId,
+      's': classId,
       'l': lecturerId,
     };
   }

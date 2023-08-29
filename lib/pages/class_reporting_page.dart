@@ -1,11 +1,17 @@
 // ignore_for_file: sort_child_properties_last, curly_braces_in_flow_control_structures
 
+import 'package:fl_location/fl_location.dart';
+import 'package:geodesy/geodesy.dart';
 import 'package:flutter/material.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:present_sir/main.dart';
 import 'package:provider/provider.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:android_id/android_id.dart';
 
+import '../widgets/info_snackbar_widget.dart';
 import '/models/classroom.dart';
 import '../models/passcode.dart';
+import '../models/attendant.dart';
 import '/widgets/loading_dialog.dart';
 import '/provider/attendence_provider.dart';
 
@@ -18,43 +24,69 @@ class ClassRecordingPage extends StatefulWidget {
 }
 
 class _ClassRecordingPageState extends State<ClassRecordingPage> {
-  Classroom? classroom;
+  late Classroom classroom;
   late AttendanceProvider _provider;
-  late Future<DocumentSnapshot<Map<String, dynamic>>> _getFuture;
+  String? phoneId = '';
+  late Future<Classroom> _getClassFuture;
+  late Future<bool?> _getPresentStatus;
 
-  Future<DocumentSnapshot<Map<String, dynamic>>> getFuture() async {
-    final future = await FirebaseFirestore.instance
-        .collection('lecturer')
-        .doc(widget.passcode.lecturerId)
-        .collection('classList')
-        .doc(widget.passcode.sessionId)
-        .snapshots()
-        .first;
-    return future;
+  ValueNotifier<bool?> canRecordPresent = ValueNotifier(null);
+
+  Future<bool?> getPresentStatus() async {
+    phoneId = await const AndroidId().getId() ?? '';
+
+    final student = await supabase
+        .from('classattendance')
+        .select()
+        .eq('student_id', _provider.appUser.indexNumber)
+        .eq('phone_id', phoneId)
+        .onError((_, __) => null)
+        .timeout(const Duration(seconds: 7)) as List<dynamic>;
+
+    print('The student is $student');
+
+    if (student.isEmpty) {
+      canRecordPresent.value = true;
+      setState(() {});
+      return true;
+    }
+    canRecordPresent.value = false;
+    setState(() {});
+    return false;
   }
 
   Future<void> recoredPresent() async {
     showLoadingDialog(context);
-    final isSuccessful = await _provider.recoredPresent(
-      passcode: widget.passcode,
-      classroom: classroom!,
+    final indexNumber = _provider.appUser.indexNumber;
+    final attendant = Attendant(
+      phoneId: phoneId!,
+      classId: widget.passcode.classId,
+      lecturerId: classroom.lecturerId,
+      studentName: _provider.appUser.name,
+      studentId: indexNumber!,
     );
+    final now = DateTime.now();
+    if (now.difference(classroom.date).inDays.abs() > 1 || now.hour > classroom.endTime.hour) {
+      Navigator.pop(context);
+      return;
+    }
 
-    if (isSuccessful) {
-      classroom!.classList.add({
-        'studentName': _provider.userName,
-        'indexNumber': _provider.indexNumber,
-      });
-      if (mounted)
+    final isSuccessful = await _provider.recordPresent(
+      attendant: attendant,
+      classLocation: classroom.location,
+    );
+    if (mounted) {
+      Navigator.pop(context);
+      if (isSuccessful) {
         ScaffoldMessenger.of(context).showSnackBar(
-          presentSnackBar('Successfully marked present'),
+          InfoSnackBarWidget.snackbar(message: 'DONE'),
         );
-      setState(() {});
-    } else {
-      if (mounted)
+        Navigator.pop(context);
+      } else {
         ScaffoldMessenger.of(context).showSnackBar(
-          presentSnackBar('Error marking present'),
+          InfoSnackBarWidget.snackbar(message: 'FAILED'),
         );
+      }
     }
   }
 
@@ -64,21 +96,21 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
     );
   }
 
-  bool showPresentButton() {
-    return (classroom == null ||
-        !classroom!.classList.any((e) => e['indexNumber'] == _provider.indexNumber) ||
-        DateTime.now().year > classroom!.date.year ||
-        DateTime.now().month > classroom!.date.month ||
-        DateTime.now().day > classroom!.date.day ||
-        TimeOfDay.now().hour > classroom!.endTime.hour ||
-        TimeOfDay.now().minute > classroom!.endTime.minute);
-  }
+  bool isWithinRange(Location location) =>
+      double.parse(_provider.calculateDistance(
+        classroom.location,
+        LatLng(location.latitude, location.longitude),
+      )) <=
+      30;
 
   @override
   void initState() {
     super.initState();
-    _getFuture = getFuture();
+    Permission.location.request();
     _provider = Provider.of<AttendanceProvider>(context, listen: false);
+    _getClassFuture = _provider.getClassFuture(widget.passcode).whenComplete(() {
+      _getPresentStatus = getPresentStatus();
+    });
   }
 
   @override
@@ -89,28 +121,90 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
         centerTitle: true,
         backgroundColor: Theme.of(context).primaryColor,
       ),
-      bottomSheet: switch (showPresentButton()) {
-        true => null,
-        false => ElevatedButton(
+      bottomSheet: ValueListenableBuilder(
+        valueListenable: ValueNotifier(canRecordPresent),
+        builder: (context, value, child) {
+          return ElevatedButton(
             child: const Text('REPORT PRESENT'),
-            onPressed: () async => await recoredPresent(),
             style: ElevatedButton.styleFrom(
               minimumSize: const Size(double.infinity, 50),
               backgroundColor: Theme.of(context).primaryColor,
             ),
-          ),
-      },
-      body: FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        future: _getFuture,
+            onPressed: switch (canRecordPresent.value) {
+              false => null,
+              null => null,
+              true => () async => await recoredPresent(),
+            },
+          );
+        },
+      ),
+      body: FutureBuilder<Classroom>(
+        future: _getClassFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting)
             return const Center(
               child: CircularProgressIndicator(),
             );
-          final classMap = snapshot.data!.data();
-          classroom = Classroom.fromJson(classMap!);
+          if (snapshot.data == null)
+            return Center(
+              child: ElevatedButton(
+                onPressed: () {
+                  setState(() {});
+                  _getClassFuture = _provider.getClassFuture(widget.passcode);
+                },
+                child: const Text('RELOAD'),
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(100, 100),
+                  backgroundColor: Theme.of(context).primaryColor,
+                ),
+              ),
+            );
+
+          classroom = snapshot.data!;
           return Column(
             children: [
+              StreamBuilder<Location>(
+                stream: FlLocation.getLocationStream(),
+                builder: (context, snapshot) {
+                  final condition =
+                      snapshot.data == null || snapshot.connectionState == ConnectionState.waiting;
+                  return switch (condition) {
+                    true => Container(
+                        alignment: Alignment.center,
+                        padding: const EdgeInsets.all(15),
+                        margin: const EdgeInsets.all(15),
+                        child: const Text(
+                          'Waiting for location',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        color: Colors.red.shade400,
+                      ),
+                    false => Container(
+                        height: 50,
+                        width: double.infinity,
+                        alignment: Alignment.bottomCenter,
+                        margin: const EdgeInsets.all(15),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(15),
+                            color: switch (isWithinRange(snapshot.data!)) {
+                              true => Colors.green,
+                              false => Colors.red,
+                            }),
+                        child: Text(
+                          style: const TextStyle(color: Colors.white),
+                          switch (isWithinRange(snapshot.data!)) {
+                            false => "You're outside classroom range",
+                            true => "You're within classroom range. Distance:${_provider.calculateDistance(
+                                classroom.location,
+                                LatLng(snapshot.data!.latitude, snapshot.data!.longitude),
+                              )}",
+                          },
+                        ),
+                      )
+                  };
+                },
+              ),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(15),
@@ -123,7 +217,7 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
                     Column(
                       children: [
                         Text(
-                          classroom!.todayTopic,
+                          classroom.todayTopic,
                           softWrap: true,
                           style: const TextStyle(
                             fontSize: 20,
@@ -131,7 +225,7 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
                           ),
                         ),
                         Text(
-                          classroom!.lecturer,
+                          classroom.todayTopic,
                           style: const TextStyle(fontSize: 15),
                         ),
                       ],
@@ -159,7 +253,7 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
                               ),
                             ),
                             Text(
-                              classroom!.startTime.format(context),
+                              classroom.startTime.format(context),
                               style: const TextStyle(
                                 fontSize: 25,
                                 fontWeight: FontWeight.w700,
@@ -179,7 +273,7 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
                               ),
                             ),
                             Text(
-                              classroom!.endTime.format(context),
+                              classroom.endTime.format(context),
                               style: const TextStyle(
                                 fontSize: 25,
                                 fontWeight: FontWeight.w700,
@@ -189,31 +283,43 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
                         ),
                         Align(
                           alignment: Alignment.bottomCenter,
-                          child: Container(
-                            alignment: Alignment.bottomCenter,
-                            width: MediaQuery.sizeOf(context).width * 0.75,
-                            margin: const EdgeInsets.symmetric(vertical: 20),
-                            padding: const EdgeInsets.all(10),
-                            child: Text(
-                              switch (classroom!.classList
-                                  .any((e) => e['studentName'] == _provider.indexNumber)) {
-                                true => 'PRESENT',
-                                false => 'ABSENT',
-                              },
-                              style: const TextStyle(
-                                fontSize: 30,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            decoration: BoxDecoration(
-                              borderRadius: BorderRadius.circular(10),
-                              color: switch (classroom!.classList
-                                  .any((e) => e['indexNumber'] == _provider.indexNumber)) {
-                                true => Colors.green,
-                                false => Colors.red,
-                              },
-                            ),
-                          ),
+                          child: ValueListenableBuilder(
+                              valueListenable: canRecordPresent,
+                              builder: (context, presentValue, child) {
+                                return Container(
+                                  alignment: Alignment.bottomCenter,
+                                  width: MediaQuery.sizeOf(context).width * 0.75,
+                                  margin: const EdgeInsets.symmetric(vertical: 20),
+                                  padding: const EdgeInsets.all(10),
+                                  child: FutureBuilder<bool?>(
+                                      future: _getPresentStatus,
+                                      builder: (context, snapshot) {
+                                        if (snapshot.connectionState == ConnectionState.waiting)
+                                          return const Center(
+                                            child: CircularProgressIndicator(),
+                                          );
+                                        return Text(
+                                          switch (presentValue) {
+                                            true => 'ABSENT',
+                                            null => 'INVALID',
+                                            false => 'ALREADY PRESENT',
+                                          },
+                                          style: const TextStyle(
+                                            fontSize: 30,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        );
+                                      }),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(10),
+                                    color: switch (presentValue) {
+                                      true => Colors.red,
+                                      null => Colors.grey,
+                                      false => Colors.green,
+                                    },
+                                  ),
+                                );
+                              }),
                         )
                       ],
                     ),

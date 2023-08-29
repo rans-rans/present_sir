@@ -3,8 +3,8 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:permission_handler/permission_handler.dart';
 import 'package:qr_code_scanner/qr_code_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 import '../models/passcode.dart';
 import '../pages/class_reporting_page.dart';
@@ -45,16 +45,16 @@ class StudentViewWidget extends StatelessWidget {
             ),
           ),
           onTap: () async {
-            String? scanningValue;
             Passcode? passcode;
+            String? scanningValue;
             await Permission.camera.request();
             if (mounted)
               await Navigator.push(
                 context,
                 MaterialPageRoute(
                   builder: (_) {
-                    return StatefulBuilder(builder: (context, snap) {
-                      return Stack(
+                    return StatefulBuilder(
+                      builder: (context, snap) => Stack(
                         alignment: Alignment.bottomCenter,
                         children: [
                           QRView(
@@ -80,19 +80,20 @@ class StudentViewWidget extends StatelessWidget {
                               onPressed: () {
                                 final passmap = json.decode(scanningValue!) as Map<String, dynamic>;
                                 passcode = Passcode.fromJson(passmap);
-                                Navigator.pushReplacement(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) {
-                                      return ClassRecordingPage(passcode: passcode!);
-                                    },
-                                  ),
-                                );
+                                if (mounted)
+                                  Navigator.pushReplacement(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) {
+                                        return ClassRecordingPage(passcode: passcode!);
+                                      },
+                                    ),
+                                  );
                               },
                             ),
                         ],
-                      );
-                    });
+                      ),
+                    );
                   },
                 ),
               );

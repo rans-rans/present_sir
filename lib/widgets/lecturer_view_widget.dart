@@ -1,10 +1,14 @@
+// ignore_for_file: sort_child_properties_last
+
 import 'package:flutter/material.dart';
-import 'package:present_sir/pages/class_check_page.dart';
+import 'package:provider/provider.dart';
 
-import '/models/classroom.dart';
+import '../provider/attendence_provider.dart';
 import '/utils/formatter.dart';
+import '/models/classroom.dart';
+import '/pages/class_check_page.dart';
 
-class LecturerViewWidget extends StatelessWidget {
+class LecturerViewWidget extends StatefulWidget {
   final List<Classroom> classrooms;
   const LecturerViewWidget({
     required this.classrooms,
@@ -12,29 +16,81 @@ class LecturerViewWidget extends StatelessWidget {
   });
 
   @override
+  State<LecturerViewWidget> createState() => _LecturerViewWidgetState();
+}
+
+class _LecturerViewWidgetState extends State<LecturerViewWidget> {
+  bool classYearsLoading = false;
+  @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text(
-          'Attendance History',
-          style: TextStyle(
-            fontSize: 25,
-            fontWeight: FontWeight.bold,
+    return Consumer<AttendanceProvider>(
+      builder: (ctx, provider, child) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'RECORDS',
+                style: TextStyle(
+                  fontSize: 25,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              Text(
+                provider.classYears[provider.selectedYearIndex],
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              StatefulBuilder(
+                builder: (ctx, snap) {
+                  return DropdownButton<String>(
+                    onChanged: (value) {
+                      provider.getLecturerClassrooms(value!);
+                      setState(() {});
+                    },
+                    value: provider.classYears[provider.selectedYearIndex],
+                    items: [
+                      for (String year in provider.classYears)
+                        DropdownMenuItem(
+                          child: Text(year),
+                          value: year,
+                          onTap: () {
+                            provider.setYearIndex(year);
+                          },
+                        ),
+                    ],
+                    icon: switch (classYearsLoading) {
+                      true => const CircularProgressIndicator(),
+                      false => IconButton(
+                          icon: const Icon(Icons.replay_outlined),
+                          onPressed: () async {
+                            snap(() => classYearsLoading = true);
+                            await provider
+                                .getLecturerYears()
+                                .whenComplete(() => snap(() => classYearsLoading = false));
+                          },
+                        ),
+                    },
+                  );
+                },
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 20),
-        Expanded(
-          child: ListView.builder(
-            itemCount: classrooms.length,
-            itemBuilder: (context, index) {
-              return LecturerClassCard(
-                classroom: classrooms[index],
-              );
-            },
+          const SizedBox(height: 20),
+          Expanded(
+            child: ListView.builder(
+              itemCount: widget.classrooms.length,
+              itemBuilder: (context, index) {
+                return LecturerClassCard(
+                  classroom: widget.classrooms[index],
+                );
+              },
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -60,7 +116,6 @@ class LecturerClassCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Container(
@@ -88,42 +143,29 @@ class LecturerClassCard extends StatelessWidget {
                   ],
                 ),
               ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'Topic',
-                        style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                        ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 15),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Topic',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
                       ),
-                      const SizedBox(height: 15),
-                      Text(
-                        classroom.todayTopic,
-                        softWrap: true,
-                        style: const TextStyle(
-                          fontSize: 19,
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                    ),
+                    const SizedBox(height: 15),
+                    Text(
+                      classroom.todayTopic,
+                      softWrap: true,
+                      style: const TextStyle(
+                        fontSize: 19,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 30),
-              Column(
-                children: [
-                  const Text('Attended'),
-                  const SizedBox(height: 20),
-                  Text(
-                    classroom.classList.length.toString(),
-                    style: const TextStyle(fontSize: 30),
-                  ),
-                ],
-              )
             ],
           ),
         ),

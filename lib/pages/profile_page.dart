@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 
 import '/widgets/loading_dialog.dart';
 import '/provider/attendence_provider.dart';
@@ -34,7 +33,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   height: 150,
                   alignment: Alignment.bottomLeft,
                   child: Text(
-                    provider.userName,
+                    provider.appUser.name,
                     style: const TextStyle(
                       fontSize: 30,
                       color: Colors.white,
@@ -42,7 +41,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   ),
                 ),
-                const SizedBox(height: 120),
+                const SizedBox(height: 45),
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 12.0),
                   child: Column(
@@ -55,17 +54,24 @@ class _ProfilePageState extends State<ProfilePage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
+                      if (provider.isLecturer)
+                        ListTile(
+                          title: const Text('Lecturer ID'),
+                          subtitle: SelectableText(provider.appUser.lecturerId!),
+                        ),
+                      if (provider.isLecturer)
+                        ListTile(
+                          title: const Text('Programme name'),
+                          subtitle: SelectableText(provider.appUser.programmeName!),
+                        ),
+                      if (!provider.isLecturer)
+                        ListTile(
+                          title: const Text('Student ID'),
+                          subtitle: SelectableText(provider.appUser.indexNumber!),
+                        ),
                       const Divider(
                         thickness: 2,
                         color: Colors.grey,
-                      ),
-                      const ListTile(
-                        leading: Text('Developer'),
-                        trailing: Text('Rans Innovations'),
-                      ),
-                      const ListTile(
-                        leading: Text('Version'),
-                        trailing: Text('1.0.0'),
                       ),
                       ListTile(
                         title: const Text(
@@ -76,7 +82,7 @@ class _ProfilePageState extends State<ProfilePage> {
                         selectedTileColor: Colors.red.shade100,
                         onLongPress: () async {
                           showLoadingDialog(context);
-                          await FirebaseAuth.instance.signOut();
+                          await provider.signOutUser();
                           if (mounted) Navigator.pushNamed(context, '/');
                         },
                       ),

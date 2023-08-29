@@ -73,13 +73,11 @@ class _CreateClassPageState extends State<CreateClassPage> {
                   setState(() => scheduleCreationLoading = true);
                   final classroom = Classroom(
                     date: date!,
-                    classList: [],
                     endTime: endTime!,
                     startTime: startTime!,
                     location: location!.location,
                     todayTopic: todayTopicCtrl.text,
-                    lecturer: provider.userName,
-                    lecturerId: provider.lecturerId!,
+                    lecturerId: provider.appUser.lecturerId!,
                   );
                   final response = await provider.completeClassScheduling(classroom);
                   if (response != null) {
@@ -200,13 +198,11 @@ class _CreateClassPageState extends State<CreateClassPage> {
                           Screenshot(
                             controller: screenshotController,
                             child: QrImageView(
-                              data: utf8
-                                  .encode(
-                                    json.encode(Passcode(
-                                      lecturerId: provider.lecturerId!,
-                                      sessionId: sessionId,
-                                    ).toJson()),
-                                  )
+                              data: json
+                                  .encode(Passcode(
+                                    classId: sessionId,
+                                    lecturerId: provider.appUser.lecturerId!,
+                                  ).toJson())
                                   .toString(),
                               size: 200,
                               backgroundColor: Colors.white,

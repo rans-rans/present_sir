@@ -1,111 +1,192 @@
 // ignore_for_file: curly_braces_in_flow_control_structures
 
-import 'dart:convert';
 import 'dart:io';
+import 'dart:convert';
 import 'dart:math' show cos, sqrt, asin;
 
-import 'package:geodesy/geodesy.dart';
-import 'package:location/location.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fl_location/fl_location.dart';
+import 'package:geodesy/geodesy.dart' show LatLng;
 import 'package:permission_handler/permission_handler.dart' as per;
+import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
+import 'package:shared_preferences/shared_preferences.dart' show SharedPreferences;
 
-import '../models/classroom.dart';
 import '../models/passcode.dart';
-
-const lecturer = 'lecturer';
-const classList = 'classList';
+import '../models/app_user.dart';
+import '../models/classroom.dart';
+import '../models/attendant.dart';
 
 class AttendanceProvider with ChangeNotifier {
   static SharedPreferences? _shared;
-  final firestore = FirebaseFirestore.instance;
-  final auth = FirebaseAuth.instance;
 
-  String _userName = '';
-  String? _lecturerId;
-  String? _programName;
-  String? _indexNumber;
+  final supabase = Supabase.instance.client;
 
   bool _isLecturer = false;
   bool get isLecturer => _isLecturer;
+  AppUser appUser = AppUser(name: '');
+  int _selectedYearIndex = 0;
+  List<String> _classYears = [
+    DateTime.now().year.toString(),
+  ];
 
-  String get userName => _userName;
-  String? get lecturerId => _lecturerId;
-  String? get indexNumber => _indexNumber;
-  String? get programName => _programName;
+  int get selectedYearIndex => _selectedYearIndex;
+  List<String> get classYears => _classYears;
+
+  void setYearIndex(String year) {
+    _selectedYearIndex = _classYears.indexWhere((e) => e == year);
+    notifyListeners();
+  }
+
+  void setClassYears(List<String> years) {
+    _classYears = years;
+    notifyListeners();
+  }
 
   static Future init() async {
     _shared = await SharedPreferences.getInstance();
   }
 
-  Future<void> getStoredData() async {
+  Future<void> getUserData(bool mounted) async {
     final data = _shared!.getString('credentials');
     final jsonUser = json.decode(data!);
-    _userName = jsonUser['username'];
-    _lecturerId = jsonUser['lecturerId'];
-    _programName = jsonUser['programName'];
-    _indexNumber = jsonUser['indexNumber'];
-    if (jsonUser['lecturerId'] != null) {
-      _isLecturer = true;
-    }
+    appUser = AppUser.fromJson(jsonUser);
+    _isLecturer = jsonUser['lecturer_id'] != null;
   }
 
   void setUserProfile({
     required String name,
+    required bool mounted,
     String? indexNumber,
     String? lecturerId,
     String? programName,
   }) async {
-    _userName = name;
-    _lecturerId = lecturerId;
-    _indexNumber = indexNumber;
-    _programName = programName;
-    await _shared!.setString(
-        'credentials',
-        json.encode({
-          'username': userName,
-          'indexNumber': indexNumber,
-          'lecturerId': lecturerId,
-          'programName': programName,
-        }));
+    appUser.name = name;
+    appUser.lecturerId = lecturerId;
+    appUser.indexNumber = indexNumber;
+    appUser.programmeName = programName;
+    await _shared!.setString('credentials', json.encode(appUser.toJson()));
+    if (mounted) notifyListeners();
+  }
+
+  Future<void> signOutUser() async {
+    await supabase.auth.signOut();
+    appUser.clearUser();
     notifyListeners();
   }
 
-  Future<bool> recoredPresent({
-    required Passcode passcode,
-    required Classroom classroom,
+  Future<Classroom> getClassFuture(Passcode passcode) async {
+    final response = await supabase
+        .from('class')
+        .select()
+        .eq('class_id', passcode.classId)
+        .eq('lecturer_id', passcode.lecturerId)
+        .onError((error, stackTrace) {
+      throw stackTrace;
+    }).timeout(
+      const Duration(seconds: 7),
+      onTimeout: () => throw const SocketException('timeout'),
+    ) as List<dynamic>;
+    final classroom = Classroom.networkFromJson(response[0]);
+
+    return classroom;
+  }
+
+//TODO
+  Future<bool> recordPresent({
+    required LatLng classLocation,
+    required Attendant attendant,
   }) async {
     try {
       await per.Permission.location.request();
-      final location = Location();
-      final locationData = await location.getLocation();
+      final locationData = await FlLocation.getLocation();
       final studentLocation = LatLng(
-        locationData.latitude!,
-        locationData.longitude!,
+        locationData.latitude,
+        locationData.longitude,
       );
 
-      final distance = calculateDistance(classroom.location, studentLocation);
+      final distance = double.parse(calculateDistance(classLocation, studentLocation));
 
-      if (distance > 50) return false;
+      if (distance > 30) return false;
 
-      await FirebaseFirestore.instance
-          .collection('lecturer')
-          .doc(passcode.lecturerId)
-          .collection('classList')
-          .doc(passcode.sessionId)
-          .update({
-            'classList': FieldValue.arrayUnion([
-              {'studentName': _userName, 'indexNumber': indexNumber},
-            ]),
-          })
-          .onError((error, stackTrace) => throw stackTrace)
-          .timeout(
-            const Duration(seconds: 7),
-            onTimeout: () => throw const SocketException('Timeout reporting to class'),
-          );
+      await supabase.from('classattendance').insert(attendant.toJson()).onError((e, s) {
+        throw s;
+      }).timeout(
+        const Duration(seconds: 7),
+        onTimeout: () => throw const SocketException('class report timeout'),
+      );
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> loginLecturer({
+    required String lecturerId,
+    required bool mounted,
+  }) async {
+    try {
+      final lecturerRequest = await supabase.from('lecturer').select().eq(
+            'lecturer_id',
+            lecturerId.trim(),
+          ) as List<dynamic>;
+
+      final lecturerDetails = lecturerRequest[0] as Map<String, dynamic>;
+      final email = lecturerDetails['email'];
+      final password = lecturerDetails['password'];
+      final name = lecturerDetails['personal_name'];
+      final programName = lecturerDetails['program'];
+      await supabase.auth
+          .signInWithPassword(
+        email: email,
+        password: password!,
+      )
+          .onError((error, stackTrace) {
+        throw stackTrace;
+      }).timeout(const Duration(seconds: 7), onTimeout: () {
+        throw const SocketException('lecturer login timeout');
+      });
+      setUserProfile(
+        name: name!,
+        mounted: mounted,
+        lecturerId: lecturerId.trim(),
+        programName: programName,
+      );
+      _isLecturer = true;
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  Future<bool> loginStudent({
+    required String email,
+    required String name,
+    required String indexNumber,
+    required bool isLogin,
+    required String password,
+    required bool mounted,
+  }) async {
+    try {
+      final canContinue = switch (isLogin) {
+        true => await supabase.auth
+              .signInWithPassword(email: email.trim(), password: password.trim())
+              .onError((_, err) => throw err)
+              .timeout(const Duration(seconds: 7), onTimeout: () {
+            throw const SocketException('student login timeout');
+          }),
+        false => await supabase.auth
+              .signUp(email: email.trim(), password: password.trim())
+              .onError((a, err) => throw err)
+              .timeout(const Duration(seconds: 12), onTimeout: () {
+            throw const SocketException('student sign-up timeout');
+          }),
+      };
+      if (canContinue.user == null) return false;
+      setUserProfile(
+        name: name,
+        mounted: mounted,
+        indexNumber: indexNumber,
+      );
       return true;
     } catch (e) {
       return false;
@@ -117,73 +198,66 @@ class AttendanceProvider with ChangeNotifier {
     bool galleryGranted = await per.Permission.photos.isGranted;
     if (!galleryGranted) status = await per.Permission.photos.request();
     if (status == per.PermissionStatus.denied) return null;
-    final classSession = Classroom(
-      date: classroom.date,
-      classList: [],
-      endTime: classroom.endTime,
-      lecturer: _userName,
-      lecturerId: _lecturerId!,
-      startTime: classroom.startTime,
-      todayTopic: classroom.todayTopic,
-      location: classroom.location,
-    );
 
-    final id = await FirebaseFirestore.instance
-        .collection(lecturer)
-        .doc(_lecturerId)
-        .collection(classList)
-        .add(classSession.toJson());
-    return id.id;
+    final session = await supabase
+        .rpc('create_class', params: classroom.networkJson())
+        .onError((_, __) => null)
+        .timeout(const Duration(seconds: 7), onTimeout: () => null);
+    return session;
   }
 
-  Future<bool> signInWithGoogle(String name, String indexNumber) async {
+  Future<List<Classroom>> getLecturerClassrooms(String year) async {
     try {
-      final googleSignIn = GoogleSignIn();
-      final googleUser = await googleSignIn.signIn();
-      final googleAuth = await googleUser!.authentication;
-      final credential = GoogleAuthProvider.credential(
-        idToken: googleAuth.idToken,
-        accessToken: googleAuth.accessToken,
-      );
-      setUserProfile(name: name, indexNumber: indexNumber);
-      await auth.signInWithCredential(credential);
-      return true;
+      final response = await supabase
+          .from('class')
+          .select()
+          .eq('year', year)
+          .eq('lecturer_id', appUser.lecturerId)
+          .onError((error, stackTrace) {
+        throw stackTrace;
+      }) as List<dynamic>;
+      final classList = response.map((e) => Classroom.networkFromJson(e)).toList();
+      return classList;
     } catch (e) {
-      return false;
+      return [];
     }
   }
 
-  Future<bool> loginLecturer({
-    required String lecturerId,
-  }) async {
+  Future<List<Attendant>> fetchAttendants(String classId) async {
     try {
-      final lecturerDetails = await firestore.collection('lecturer').doc(lecturerId).get();
-      final lecturerData = lecturerDetails.data();
-      final name = lecturerData!['name'];
-      final email = lecturerData['email'];
-      final password = lecturerData['password'];
-      final programName = lecturerData['program'];
-      await auth.signInWithEmailAndPassword(email: email, password: password);
-      setUserProfile(
-        name: name,
-        lecturerId: lecturerId,
-        programName: programName,
-      );
-      return true;
-    } catch (e) {
-      return false;
+      final response = await supabase
+          .from('classattendance')
+          .select()
+          .eq('class_id', classId)
+          .eq('lecturer_id', appUser.lecturerId)
+          .onError((_, err) => throw err)
+          .timeout(
+            const Duration(seconds: 7),
+            onTimeout: () => throw const SocketException('attendants fetch failed'),
+          ) as List<dynamic>;
+
+      final attendants = response.map((e) => Attendant.fromJson(e)).toList();
+      return attendants;
+    } catch (_) {
+      return [];
     }
   }
 
-  Future<List<Classroom>> getLecturerClassrooms() async {
-    List<Classroom> classrooms = [];
-    final lecturerResponse = firestore.collection('lecturer').doc(_lecturerId).collection('classList');
-    final classesJson = await lecturerResponse.snapshots().first;
-    classrooms = classesJson.docs.map((item) => Classroom.fromJson(item.data())).toList();
-    return classrooms;
+  Future<void> getLecturerYears() async {
+    try {
+      final response = await supabase.rpc('get_lecturer_uinque_years', params: {
+        'p_lecturer_id': appUser.lecturerId,
+      }) as List<dynamic>;
+      final data = response[0]['years'] as List<dynamic>;
+      final years = data.map((e) => '$e').toList();
+      _classYears = years;
+      notifyListeners();
+    } catch (e) {
+      rethrow;
+    }
   }
 
-  double calculateDistance(LatLng classpoint, LatLng studentpoint) {
+  String calculateDistance(LatLng classpoint, LatLng studentpoint) {
     var p = 0.017453292519943295;
     var a = 0.5 -
         cos((studentpoint.latitude - classpoint.latitude) * p) / 2 +
@@ -191,7 +265,7 @@ class AttendanceProvider with ChangeNotifier {
             cos(studentpoint.latitude * p) *
             (1 - cos((studentpoint.longitude - classpoint.longitude) * p)) /
             2;
-    final kilometer = 12742 * asin(sqrt(a));
-    return kilometer / 1000;
+    final metres = 1274200 * asin(sqrt(a));
+    return metres.toStringAsFixed(3);
   }
 }
