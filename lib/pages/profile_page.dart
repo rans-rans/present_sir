@@ -64,7 +64,7 @@ class _ProfilePageState extends State<ProfilePage> {
                           title: const Text('Programme name'),
                           subtitle: SelectableText(provider.appUser.programmeName!),
                         ),
-                      if (!provider.isLecturer)
+                      if (provider.isLecturer == false)
                         ListTile(
                           title: const Text('Student ID'),
                           subtitle: SelectableText(provider.appUser.indexNumber!),

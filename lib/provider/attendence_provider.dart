@@ -134,7 +134,7 @@ class AttendanceProvider with ChangeNotifier {
       final email = lecturerDetails['email'];
       final password = lecturerDetails['password'];
       final name = lecturerDetails['personal_name'];
-      final programName = lecturerDetails['program'];
+      final programName = lecturerDetails['program_name'];
       await supabase.auth
           .signInWithPassword(
         email: email,
@@ -149,7 +149,7 @@ class AttendanceProvider with ChangeNotifier {
         name: name!,
         mounted: mounted,
         lecturerId: lecturerId.trim(),
-        programName: programName,
+        programName: programName.toString(),
       );
       _isLecturer = true;
       return true;
