@@ -291,21 +291,22 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                             },
                           ),
-                          Align(
-                            alignment: Alignment.bottomRight,
-                            child: TextButton(
-                              child: Text(
-                                switch (isLogin) {
-                                  true => 'Sign up instead',
-                                  false => 'Login instead',
+                          if (!isLecturer)
+                            Align(
+                              alignment: Alignment.bottomRight,
+                              child: TextButton(
+                                child: Text(
+                                  switch (isLogin) {
+                                    true => 'Sign up instead',
+                                    false => 'Login instead',
+                                  },
+                                  style: const TextStyle(color: Colors.pink),
+                                ),
+                                onPressed: () {
+                                  setState(() => isLogin = !isLogin);
                                 },
-                                style: const TextStyle(color: Colors.pink),
                               ),
-                              onPressed: () {
-                                setState(() => isLogin = !isLogin);
-                              },
                             ),
-                          ),
                         ],
                       ),
                     ),
