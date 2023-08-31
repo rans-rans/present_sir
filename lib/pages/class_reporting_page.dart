@@ -42,9 +42,6 @@ class _ClassRecordingPageState extends State<ClassRecordingPage> {
         .eq('phone_id', phoneId)
         .onError((_, __) => null)
         .timeout(const Duration(seconds: 7)) as List<dynamic>;
-
-    print('The student is $student');
-
     if (student.isEmpty) {
       canRecordPresent.value = true;
       setState(() {});

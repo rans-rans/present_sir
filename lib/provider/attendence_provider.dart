@@ -91,7 +91,6 @@ class AttendanceProvider with ChangeNotifier {
     return classroom;
   }
 
-//TODO
   Future<bool> recordPresent({
     required LatLng classLocation,
     required Attendant attendant,
@@ -134,7 +133,7 @@ class AttendanceProvider with ChangeNotifier {
       final email = lecturerDetails['email'];
       final password = lecturerDetails['password'];
       final name = lecturerDetails['personal_name'];
-      final programName = lecturerDetails['program_name'];
+      final programName = lecturerDetails['programme_name'];
       await supabase.auth
           .signInWithPassword(
         email: email,
