@@ -39,6 +39,8 @@ class _CreateClassPageState extends State<CreateClassPage> {
 
   bool buttonShouldEnable() {
     if (startTime == null || endTime == null || date == null || location == null) return false;
+    if (startTime!.hour > endTime!.hour) return false;
+    if (startTime!.hour == endTime!.hour && startTime!.minute >= endTime!.minute) return false;
     if (todayTopicCtrl.text.isEmpty) return false;
     if (scheduleCreationLoading) return false;
     if (scheduleSuccesful) return false;
@@ -85,9 +87,7 @@ class _CreateClassPageState extends State<CreateClassPage> {
                     sessionId = response;
                   }
                   scheduleCreationLoading = false;
-
                   setState(() {});
-
                   final imageBytes = await screenshotController.capture();
                   if (imageBytes == null || response == null) return;
                   ImageGallerySaver.saveImage(imageBytes);
@@ -120,6 +120,7 @@ class _CreateClassPageState extends State<CreateClassPage> {
                   TextField(
                     controller: todayTopicCtrl,
                     focusNode: todayTopicFocus,
+                    onChanged: (_) => setState(() {}),
                     textInputAction: TextInputAction.done,
                     decoration: const InputDecoration(
                       labelText: 'Topic',
